@@ -22,6 +22,7 @@
 
 #define SILENCE_FRAMES 8
 #define HOLD_FRAMES    4
+#define VERSION "0.2.0"
 
 static struct pw_main_loop *main_loop = NULL;
 static struct pw_core *core = NULL;
@@ -42,6 +43,8 @@ static int running = 1;
 static int silent_frames = 0;
 static int active_frames = 0;
 static int hidden = 1;
+static float peak_max = 1.0f;
+static const char *css_class = "vis";
 
 static void sighandler(int sig)
 {
@@ -150,7 +153,7 @@ static void on_timer(void *userdata, uint64_t expirations)
                           raw[i] * (1.0f - SMOOTH_DECAY);
 
         if (smoothed[i] > peak) peak = smoothed[i];
-        int level = (int)(smoothed[i] * 8.0f);
+        int level = (int)(smoothed[i] / peak_max * 8.0f);
         if (level < 0) level = 0;
         if (level > 7) level = 7;
         pos += snprintf(text + pos, sizeof(text) - pos, "%s", blocks[level]);
@@ -171,11 +174,18 @@ static void on_timer(void *userdata, uint64_t expirations)
             hidden = 0;
     }
 
+    if (peak > peak_max)
+        peak_max = peak;
+    else
+        peak_max *= 0.995f;
+
+    if (peak_max < 0.01f) peak_max = 0.01f;
+
     if (hidden)
         printf("{\"text\":\"\",\"class\":\"hidden\"}\n");
     else
-        printf("{\"text\":\"%s\",\"class\":\"vis\",\"tooltip\":\"Spectrum %d bands\"}\n",
-               text, n_bands);
+        printf("{\"text\":\"%s\",\"class\":\"%s\",\"tooltip\":\"Spectrum %d bands\"}\n",
+               text, css_class, n_bands);
     fflush(stdout);
 }
 
@@ -201,9 +211,21 @@ int main(int argc, char *argv[])
             refresh_rate = atoi(argv[++i]);
         else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc)
             silence_thresh = atof(argv[++i]);
-        else if (strcmp(argv[i], "-h") == 0)
+        else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc)
+            css_class = argv[++i];
+        else if (strcmp(argv[i], "--version") == 0)
         {
-            printf("usage: waybar-vis [-b bands] [-r rate] [-t threshold]\n");
+            printf("waybar-vis version %s\n", VERSION);
+            return 0;
+        }
+        else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
+        {
+            printf("usage: waybar-vis [-b bands] [-r rate] [-t threshold] [-c class]\n");
+            printf("  -b        number of bands (4-64, default 16)\n");
+            printf("  -r        refresh rate in Hz (10-60, default 30)\n");
+            printf("  -t        silence threshold (default 0.08)\n");
+            printf("  -c        CSS class for Waybar (default \"vis\")\n");
+            printf("  --version print version and exit\n");
             return 0;
         }
     }
