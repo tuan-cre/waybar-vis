@@ -20,7 +20,7 @@ sudo make install
 ## Usage
 
 ```sh
-waybar-vis [-b bands] [-r rate] [-t threshold]
+waybar-vis [-b bands] [-r rate] [-t threshold] [-c class]
 ```
 
 | Flag | Default | Description |
@@ -28,6 +28,8 @@ waybar-vis [-b bands] [-r rate] [-t threshold]
 | `-b` | 16      | Number of frequency bands (4–64) |
 | `-r` | 30      | Refresh rate in Hz (10–60) |
 | `-t` | 0.08    | Silence threshold (peak band value) |
+| `-c` | "vis"   | CSS class for Waybar |
+| `--version` | — | Print version and exit |
 
 ### Waybar config
 
@@ -72,3 +74,5 @@ The `.hidden` class is applied automatically when no audio is playing.
 4. Smooths values with attack/decay for a fluid visual
 5. Outputs JSON with Unicode block characters (▁▂▃▄▅▆▇█)
 6. Auto-hides after 8 consecutive silent frames
+7. Auto-sensitivity normalizes bars to full range regardless of volume
+8. Supports multiple instances with `-c class` for different CSS styles
