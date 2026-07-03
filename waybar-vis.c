@@ -20,6 +20,9 @@
 #define SMOOTH_ATTACK 0.0f
 #define SMOOTH_DECAY  0.82f
 
+#define SILENCE_FRAMES 8
+#define HOLD_FRAMES    4
+
 static struct pw_main_loop *main_loop = NULL;
 static struct pw_core *core = NULL;
 static struct pw_stream *stream = NULL;
@@ -33,8 +36,12 @@ static int read_pos = 0;
 static float *smoothed = NULL;
 static int n_bands = 16;
 static int refresh_rate = 30;
+static float silence_thresh = 0.08f;
 
 static int running = 1;
+static int silent_frames = 0;
+static int active_frames = 0;
+static int hidden = 1;
 
 static void sighandler(int sig)
 {
@@ -126,6 +133,7 @@ static void on_timer(void *userdata, uint64_t expirations)
     float raw[n_bands];
     compute_bands(freq, raw, n_bands);
 
+    float peak = 0.0f;
     static const char *blocks[] = {
         "\xe2\x96\x81", "\xe2\x96\x82", "\xe2\x96\x83", "\xe2\x96\x84",
         "\xe2\x96\x85", "\xe2\x96\x86", "\xe2\x96\x87", "\xe2\x96\x88"
@@ -141,14 +149,33 @@ static void on_timer(void *userdata, uint64_t expirations)
             smoothed[i] = smoothed[i] * SMOOTH_DECAY +
                           raw[i] * (1.0f - SMOOTH_DECAY);
 
+        if (smoothed[i] > peak) peak = smoothed[i];
         int level = (int)(smoothed[i] * 8.0f);
         if (level < 0) level = 0;
         if (level > 7) level = 7;
         pos += snprintf(text + pos, sizeof(text) - pos, "%s", blocks[level]);
     }
 
-    printf("{\"text\":\"%s\",\"class\":\"vis\",\"tooltip\":\"Spectrum %d bands\"}\n",
-           text, n_bands);
+    if (peak < silence_thresh)
+    {
+        silent_frames++;
+        active_frames = 0;
+        if (silent_frames >= SILENCE_FRAMES)
+            hidden = 1;
+    }
+    else
+    {
+        active_frames++;
+        silent_frames = 0;
+        if (active_frames >= HOLD_FRAMES)
+            hidden = 0;
+    }
+
+    if (hidden)
+        printf("{\"text\":\"\",\"class\":\"hidden\"}\n");
+    else
+        printf("{\"text\":\"%s\",\"class\":\"vis\",\"tooltip\":\"Spectrum %d bands\"}\n",
+               text, n_bands);
     fflush(stdout);
 }
 
@@ -172,9 +199,11 @@ int main(int argc, char *argv[])
             n_bands = atoi(argv[++i]);
         else if (strcmp(argv[i], "-r") == 0 && i + 1 < argc)
             refresh_rate = atoi(argv[++i]);
+        else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc)
+            silence_thresh = atof(argv[++i]);
         else if (strcmp(argv[i], "-h") == 0)
         {
-            printf("usage: waybar-vis [-b bands] [-r rate]\n");
+            printf("usage: waybar-vis [-b bands] [-r rate] [-t threshold]\n");
             return 0;
         }
     }
