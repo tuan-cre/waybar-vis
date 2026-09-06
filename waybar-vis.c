@@ -45,7 +45,7 @@ static int running = 1;
 static int silent_frames = 0;
 static int active_frames = 0;
 static int hidden = 1;
-static int was_hidden = 1;
+static int was_hidden = 0;  /* 0 forces the idle transition on silent startup */
 static float peak_max = 1.0f;
 static const char *css_class = "vis";
 
