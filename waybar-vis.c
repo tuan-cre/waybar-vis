@@ -45,6 +45,7 @@ static int running = 1;
 static int silent_frames = 0;
 static int active_frames = 0;
 static int hidden = 1;
+static int was_hidden = 1;
 static float peak_max = 1.0f;
 static const char *css_class = "vis";
 
@@ -118,14 +119,26 @@ static void on_process(void *userdata)
     pw_stream_queue_buffer(stream, b);
 }
 
-static void on_timer(void *userdata, uint64_t expirations)
+/* Reprogram the render timer. Called on idle/active transitions so a
+ * silent visualizer sips CPU (4 Hz poll) instead of spinning at 60 Hz. */
+static void set_timer_rate(int hz)
 {
-    (void)userdata;
+    if (!main_loop || !timer_src || hz < 1) return;
+    struct timespec ts = {0, 1000000000 / hz};
+    pw_loop_update_timer(pw_main_loop_get_loop(main_loop),
+                         timer_src, &ts, &ts, false);
+}
+
+static void on_timer(void *userdata, uint64_t expirations)
+{    (void)userdata;
     (void)expirations;
     int wp = write_pos;
     int avail = wp - read_pos;
 
     if (avail < N_SAMPLES) return;
+
+    /* idle timer runs slow: drop backlog, always render the latest audio */
+    if (avail > N_SAMPLES) read_pos = wp - N_SAMPLES;
 
     float pcm[N_SAMPLES];
     for (int i = 0; i < N_SAMPLES; i++)
@@ -185,12 +198,23 @@ static void on_timer(void *userdata, uint64_t expirations)
 
     if (peak_max < 0.01f) peak_max = 0.01f;
 
-    if (hidden)
+    if (hidden && !was_hidden)
+    {
+        /* just went idle: emit one final empty frame, then slow down */
         printf("{\"text\":\"\",\"class\":\"hidden\"}\n");
-    else
+        fflush(stdout);
+        set_timer_rate(4);
+    }
+    else if (!hidden)
+    {
+        if (was_hidden)
+            set_timer_rate(refresh_rate);
         printf("{\"text\":\"%s\",\"class\":\"%s\",\"tooltip\":\"Spectrum %d bands\"}\n",
                text, css_class, n_bands);
-    fflush(stdout);
+        fflush(stdout);
+    }
+    /* idle steady-state: print nothing — waybar keeps last (empty) frame */
+    was_hidden = hidden;
 }
 
 static void on_state_changed(void *userdata, enum pw_stream_state old,
