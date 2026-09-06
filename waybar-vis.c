@@ -20,8 +20,8 @@
 #define SMOOTH_ATTACK 0.0f
 #define SMOOTH_DECAY  0.82f
 
-#define SILENCE_FRAMES 8
-#define HOLD_FRAMES    4
+#define SILENCE_FRAMES 1
+#define HOLD_FRAMES    1
 #define VERSION "0.2.0"
 
 static struct pw_main_loop *main_loop = NULL;
@@ -38,6 +38,8 @@ static float *smoothed = NULL;
 static int n_bands = 16;
 static int refresh_rate = 30;
 static float silence_thresh = 0.08f;
+static float sensitivity = 1.0f;
+static float decay = 0.995f;
 
 static int running = 1;
 static int silent_frames = 0;
@@ -153,7 +155,7 @@ static void on_timer(void *userdata, uint64_t expirations)
                           raw[i] * (1.0f - SMOOTH_DECAY);
 
         if (smoothed[i] > peak) peak = smoothed[i];
-        int level = (int)(smoothed[i] / peak_max * 8.0f);
+        int level = (int)(smoothed[i] / peak_max * 8.0f * sensitivity);
         if (level < 0) level = 0;
         if (level > 7) level = 7;
         pos += snprintf(text + pos, sizeof(text) - pos, "%s", blocks[level]);
@@ -163,6 +165,8 @@ static void on_timer(void *userdata, uint64_t expirations)
     {
         silent_frames++;
         active_frames = 0;
+        /* snap bars to zero: no droop through low blocks before hiding */
+        memset(smoothed, 0, (size_t)n_bands * sizeof(float));
         if (silent_frames >= SILENCE_FRAMES)
             hidden = 1;
     }
@@ -177,7 +181,7 @@ static void on_timer(void *userdata, uint64_t expirations)
     if (peak > peak_max)
         peak_max = peak;
     else
-        peak_max *= 0.995f;
+        peak_max *= decay;
 
     if (peak_max < 0.01f) peak_max = 0.01f;
 
@@ -211,6 +215,10 @@ int main(int argc, char *argv[])
             refresh_rate = atoi(argv[++i]);
         else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc)
             silence_thresh = atof(argv[++i]);
+        else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc)
+            decay = atof(argv[++i]);
+        else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc)
+            sensitivity = atof(argv[++i]);
         else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc)
             css_class = argv[++i];
         else if (strcmp(argv[i], "--version") == 0)
@@ -220,10 +228,13 @@ int main(int argc, char *argv[])
         }
         else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
         {
-            printf("usage: waybar-vis [-b bands] [-r rate] [-t threshold] [-c class]\n");
+            printf("usage: waybar-vis [-b bands] [-r rate] [-t threshold]\n");
+            printf("       [-d decay] [-s sensitivity] [-c class] [--version]\n");
             printf("  -b        number of bands (4-64, default 16)\n");
             printf("  -r        refresh rate in Hz (10-60, default 30)\n");
             printf("  -t        silence threshold (default 0.08)\n");
+            printf("  -d        peak decay rate (default 0.995, higher = smoother)\n");
+            printf("  -s        sensitivity multiplier (default 1.0, lower = less reactive)\n");
             printf("  -c        CSS class for Waybar (default \"vis\")\n");
             printf("  --version print version and exit\n");
             return 0;
